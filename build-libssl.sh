@@ -37,7 +37,7 @@ DEFAULTTARGETS="ios-sim-cross-x86_64 ios-sim-cross-arm64 ios-cross-arm64 mac-cat
 
 # Minimum iOS/tvOS SDK version to build for
 
-IOS_MIN_SDK_VERSION="15.0"
+IOS_MIN_SDK_VERSION="13.0"
 TVOS_MIN_SDK_VERSION="15.0"
 WATCHOS_MIN_SDK_VERSION="8.5"
 MACOSX_MIN_SDK_VERSION="12.3"
