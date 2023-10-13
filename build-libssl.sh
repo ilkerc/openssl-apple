@@ -1,10 +1,10 @@
 #!/bin/sh
 
 #  Automatic build script for libssl and libcrypto
-#  for Apple devices.
+#  for iPhoneOS and iPhoneSimulator
 #
 #  Created by Felix Schulze on 16.12.10.
-#  Copyright 2010-2017 Felix Schulze. All rights reserved.
+#  Copyright 2010-2019 Felix Schulze. All rights reserved.
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -25,23 +25,22 @@ set -u
 # SCRIPT DEFAULTS
 
 # Default version in case no version is specified
-DEFAULTVERSION="1.1.1m"
+DEFAULTVERSION="1.1.1w"
 
-# Default (=full) set of targets (OpenSSL >= 1.1.1) to build
-DEFAULTTARGETS=`cat <<TARGETS
-ios-sim-cross-x86_64 ios-sim-cross-arm64 ios64-cross-arm64 ios64-cross-arm64e
-macos64-x86_64 macos64-arm64
-mac-catalyst-x86_64 mac-catalyst-arm64
-watchos-cross-armv7k watchos-cross-arm64_32 watchos-sim-cross-x86_64 watchos-sim-cross-i386 watchos-sim-cross-arm64
-tvos-sim-cross-x86_64 tvos64-cross-arm64
-TARGETS`
+# Default (=full) set of targets to build
+DEFAULTTARGETS="ios-sim-cross-x86_64 ios-sim-cross-arm64 ios-cross-arm64 mac-catalyst-x86_64 mac-catalyst-arm64 tvos-sim-cross-x86_64 tvos-sim-cross-arm64 tvos-cross-arm64 watchos-sim-cross-x86_64 watchos-sim-cross-arm64 watchos-cross-armv7k watchos-cross-arm64_32"
+
+# Excluded targets:
+#   ios-sim-cross-i386  Legacy
+#   ios-cross-armv7s    Dropped by Apple in Xcode 6 (https://www.cocoanetics.com/2014/10/xcode-6-drops-armv7s/)
+#   ios-cross-arm64e    Not in use as of Xcode 12
 
 # Minimum iOS/tvOS SDK version to build for
-IOS_MIN_SDK_VERSION="12.0"
-MACOS_MIN_SDK_VERSION="10.14"
-CATALYST_MIN_SDK_VERSION="10.14"
-WATCHOS_MIN_SDK_VERSION="4.0"
-TVOS_MIN_SDK_VERSION="12.0"
+
+IOS_MIN_SDK_VERSION="13.0"
+TVOS_MIN_SDK_VERSION="13.0"
+WATCHOS_MIN_SDK_VERSION="8.5"
+MACOSX_MIN_SDK_VERSION="12.3"
 
 # Init optional env variables (use available variable or default to empty string)
 CURL_OPTIONS="${CURL_OPTIONS:-}"
@@ -56,14 +55,13 @@ echo_help()
   echo "     --ec-nistp-64-gcc-128         Enable configure option enable-ec_nistp_64_gcc_128 for 64 bit builds"
   echo " -h, --help                        Print help (this message)"
   echo "     --ios-sdk=SDKVERSION          Override iOS SDK version"
-  echo "     --macos-sdk=SDKVERSION        Override macOS SDK version"
-  echo "     --catalyst-sdk=SDKVERSION     Override macOS SDK version for Catalyst"
+  echo "     --ios-min-sdk=MINSDKVERSION   Override iOS SDK min version"
+  echo "     --macosx-sdk=SDKVERSION       Override MacOSX SDK version"
+  echo "     --macosx-min-sdk=SDKVERSION   Override MacOSX SDK min version"
   echo "     --watchos-sdk=SDKVERSION      Override watchOS SDK version"
+  echo "     --watchos-min-sdk=SDKVERSION  Override watchOS SDK min version"
   echo "     --tvos-sdk=SDKVERSION         Override tvOS SDK version"
-  echo "     --min-ios-sdk=SDKVERSION      Set minimum iOS SDK version (default: $IOS_MIN_SDK_VERSION)"
-  echo "     --min-macos-sdk=SDKVERSION    Set minimum macOS SDK version (default: $MACOS_MIN_SDK_VERSION)"
-  echo "     --min-watchos-sdk=SDKVERSION  Set minimum watchOS SDK version (default: $WATCHOS_MIN_SDK_VERSION)"
-  echo "     --min-tvos-sdk=SDKVERSION     Set minimum tvOS SDK version (default: $TVOS_MIN_SDK_VERSION)"
+  echo "     --tvos-min-sdk=SDKVERSION     Override tvOS SDK min version"
   echo "     --noparallel                  Disable running make with parallel jobs (make -j)"
   echo "     --disable-bitcode             Disable embedding Bitcode"
   echo " -v, --verbose                     Enable verbose logging"
@@ -71,7 +69,7 @@ echo_help()
   echo "     --version=VERSION             OpenSSL version to build (defaults to ${DEFAULTVERSION})"
   echo "     --deprecated                  Exclude no-deprecated configure option and build with deprecated methods"
   echo "     --targets=\"TARGET TARGET ...\" Space-separated list of build targets"
-  echo "                                     Options: ${DEFAULTTARGETS}"
+  echo "                                     Options: ${DEFAULTTARGETS} mac-catalyst-x86_64"
   echo
   echo "For custom configure options, set variable CONFIG_OPTIONS"
   echo "For custom cURL options, set variable CURL_OPTIONS"
@@ -173,38 +171,34 @@ finish_build_loop()
   rm -r "${SOURCEDIR}"
 
   # Add references to library files to relevant arrays
-  if [[ "${PLATFORM}" == iPhone* ]]; then
+  if [[ "${PLATFORM}" == iPhoneOS ]]; then
     LIBSSL_IOS+=("${TARGETDIR}/lib/libssl.a")
     LIBCRYPTO_IOS+=("${TARGETDIR}/lib/libcrypto.a")
-    if [[ "${PLATFORM}" == iPhoneSimulator* ]]; then
-      OPENSSLCONF_SUFFIX="ios_sim_${ARCH}"
-    else
-      OPENSSLCONF_SUFFIX="ios_${ARCH}"
-    fi
-  elif [[ "${PLATFORM}" == Watch* ]]; then
-    LIBSSL_WATCHOS+=("${TARGETDIR}/lib/libssl.a")
-    LIBCRYPTO_WATCHOS+=("${TARGETDIR}/lib/libcrypto.a")
-    if [[ "${PLATFORM}" == WatchSimulator* ]]; then
-      OPENSSLCONF_SUFFIX="watchos_sim_${ARCH}"
-    else
-      OPENSSLCONF_SUFFIX="watchos_${ARCH}"
-    fi
-  elif [[ "${PLATFORM}" == AppleTV* ]]; then
+    OPENSSLCONF_SUFFIX="ios_${ARCH}"
+  elif [[ "${PLATFORM}" == iPhoneSimulator ]]; then
+    LIBSSL_IOSSIM+=("${TARGETDIR}/lib/libssl.a")
+    LIBCRYPTO_IOSSIM+=("${TARGETDIR}/lib/libcrypto.a")
+    OPENSSLCONF_SUFFIX="ios_${ARCH}"
+  elif [[ "${PLATFORM}" == AppleTVOS ]]; then
     LIBSSL_TVOS+=("${TARGETDIR}/lib/libssl.a")
     LIBCRYPTO_TVOS+=("${TARGETDIR}/lib/libcrypto.a")
-    if [[ "${PLATFORM}" == AppleTVSimulator* ]]; then
-      OPENSSLCONF_SUFFIX="tvos_sim_${ARCH}"
-    else
-      OPENSSLCONF_SUFFIX="tvos_${ARCH}"
-    fi
-  elif [[ "${PLATFORM}" == Catalyst* ]]; then
+    OPENSSLCONF_SUFFIX="tvos_${ARCH}"
+  elif [[ "${PLATFORM}" == AppleTVSimulator ]]; then
+    LIBSSL_TVOSSIM+=("${TARGETDIR}/lib/libssl.a")
+    LIBCRYPTO_TVOSSIM+=("${TARGETDIR}/lib/libcrypto.a")
+    OPENSSLCONF_SUFFIX="tvos_${ARCH}"
+  elif [[ "${PLATFORM}" == WatchOS ]]; then
+    LIBSSL_WATCHOS+=("${TARGETDIR}/lib/libssl.a")
+    LIBCRYPTO_WATCHOS+=("${TARGETDIR}/lib/libcrypto.a")
+    OPENSSLCONF_SUFFIX="watchos_${ARCH}"
+  elif [[ "${PLATFORM}" == WatchSimulator ]]; then
+    LIBSSL_WATCHOSSIM+=("${TARGETDIR}/lib/libssl.a")
+    LIBCRYPTO_WATCHOSSIM+=("${TARGETDIR}/lib/libcrypto.a")
+    OPENSSLCONF_SUFFIX="watchos_${ARCH}"
+  else # Catalyst
     LIBSSL_CATALYST+=("${TARGETDIR}/lib/libssl.a")
     LIBCRYPTO_CATALYST+=("${TARGETDIR}/lib/libcrypto.a")
     OPENSSLCONF_SUFFIX="catalyst_${ARCH}"
-  else
-    LIBSSL_MACOS+=("${TARGETDIR}/lib/libssl.a")
-    LIBCRYPTO_MACOS+=("${TARGETDIR}/lib/libcrypto.a")
-    OPENSSLCONF_SUFFIX="macos_${ARCH}"
   fi
 
   # Copy opensslconf.h to bin directory and add to array
@@ -218,20 +212,6 @@ finish_build_loop()
   fi
 }
 
-gpg_validate()
-{
-  local TARGET=$1
-  local SIG=${2:-${TARGET}.asc}
-
-  GPG_B=$(which gpg)
-  if [ ! -x "${GPG_B}" ]; then
-    echo "WARN: No gpg executable found in PATH. Please consider installing gpg so archive signature validation can proceed."
-    return 1
-  fi
-
-  $GPG_B --keyserver keys.openpgp.org --keyserver-options auto-key-retrieve,include-subkeys --verify-options show-photos --verify "${SIG}" "${TARGET}"
-}
-
 # Init optional command line vars
 ARCHS=""
 BRANCH=""
@@ -240,19 +220,22 @@ CONFIG_ENABLE_EC_NISTP_64_GCC_128=""
 CONFIG_DISABLE_BITCODE=""
 CONFIG_NO_DEPRECATED=""
 IOS_SDKVERSION=""
-MACOS_SDKVERSION=""
-CATALYST_SDKVERSION=""
-WATCHOS_SDKVERSION=""
-TVOS_SDKVERSION=""
+MACOSX_SDKVERSION=""
 LOG_VERBOSE=""
 PARALLEL=""
 TARGETS=""
+TVOS_SDKVERSION=""
 VERSION=""
+WATCHOS_SDKVERSION=""
 
 # Process command line arguments
 for i in "$@"
 do
 case $i in
+  --archs=*)
+    ARCHS="${i#*=}"
+    shift
+    ;;
   --branch=*)
     BRANCH="${i#*=}"
     shift
@@ -267,8 +250,8 @@ case $i in
     CONFIG_ENABLE_EC_NISTP_64_GCC_128="true"
     ;;
   --disable-bitcode)
-   CONFIG_DISABLE_BITCODE="true"
-   ;;
+    CONFIG_DISABLE_BITCODE="true"
+    ;;
   -h|--help)
     echo_help
     exit
@@ -277,36 +260,32 @@ case $i in
     IOS_SDKVERSION="${i#*=}"
     shift
     ;;
-  --macos-sdk=*)
-    MACOS_SDKVERSION="${i#*=}"
+  --ios-min-sdk=*)
+    IOS_MIN_SDK_VERSION="${i#*=}"
     shift
     ;;
-  --catalyst-sdk=*)
-    CATALYST_SDKVERSION="${i#*=}"
+  --macosx-sdk=*)
+    MACOSX_SDKVERSION="${i#*=}"
     shift
     ;;
-  --watchos-sdk=*)
-    WATCHOS_SDKVERSION="${i#*=}"
+  --macosx-min-sdk=*)
+    MACOSX_MIN_SDK_VERSION="${i#*=}"
     shift
     ;;
   --tvos-sdk=*)
     TVOS_SDKVERSION="${i#*=}"
     shift
     ;;
-  --min-ios-sdk=*)
-    IOS_MIN_SDK_VERSION="${i#*=}"
-    shift
-    ;;
-  --min-macos-sdk=*)
-    MACOS_MIN_SDK_VERSION="${i#*=}"
-    shift
-    ;;
-  --min-watchos-sdk=*)
-    WATCHOS_MIN_SDK_VERSION="${i#*=}"
-    shift
-    ;;
-  --min-tvos-sdk=*)
+  --tvos-min-sdk=*)
     TVOS_MIN_SDK_VERSION="${i#*=}"
+    shift
+    ;;
+  --watchos-sdk=*)
+    WATCHOS_SDKVERSION="${i#*=}"
+    shift
+    ;;
+  --watchos-min-sdk=*)
+    WATCHOS_MIN_SDK_VERSION="${i#*=}"
     shift
     ;;
   --noparallel)
@@ -316,6 +295,7 @@ case $i in
     TARGETS="${i#*=}"
     shift
     ;;
+
   -v|--verbose)
     LOG_VERBOSE="verbose"
     ;;
@@ -339,14 +319,14 @@ if [[ -n "${VERSION}" && -n "${BRANCH}" ]]; then
 
 # Specific version: Verify version number format. Expected: dot notation
 elif [[ -n "${VERSION}" && ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+[a-z]*$ ]]; then
-  echo "Unknown version number format. Examples: 1.0.2, 1.0.2h"
+  echo "Unknown version number format. Examples: 1.1.0, 1.1.0l"
   exit 1
 
 # Specific branch
 elif [ -n "${BRANCH}" ]; then
   # Verify version number format. Expected: dot notation
   if [[ ! "${BRANCH}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "Unknown branch version number format. Examples: 1.0.2, 1.1.1"
+    echo "Unknown branch version number format. Examples: 1.1.0, 1.2.0"
     exit 1
 
   # Valid version number, determine latest version
@@ -384,24 +364,15 @@ fi
 if [ ! -n "${IOS_SDKVERSION}" ]; then
   IOS_SDKVERSION=$(xcrun -sdk iphoneos --show-sdk-version)
 fi
-if [ ! -n "${MACOS_SDKVERSION}" ]; then
-  MACOS_SDKVERSION=$(xcrun -sdk macosx --show-sdk-version)
-fi
-if [ ! -n "${CATALYST_SDKVERSION}" ]; then
-  CATALYST_SDKVERSION=$(xcrun -sdk macosx --show-sdk-version)
-fi
-if [ ! -n "${WATCHOS_SDKVERSION}" ]; then
-  WATCHOS_SDKVERSION=$(xcrun -sdk watchos --show-sdk-version)
+if [ ! -n "${MACOSX_SDKVERSION}" ]; then
+  MACOSX_SDKVERSION=$(xcrun -sdk macosx --show-sdk-version)
 fi
 if [ ! -n "${TVOS_SDKVERSION}" ]; then
   TVOS_SDKVERSION=$(xcrun -sdk appletvos --show-sdk-version)
 fi
-
-# Truncate to minor version
-MINOR_VERSION=(${MACOS_SDKVERSION//./ })
-MACOS_SDKVERSION="${MINOR_VERSION[0]}.${MINOR_VERSION[1]}"
-MINOR_VERSION=(${CATALYST_SDKVERSION//./ })
-CATALYST_SDKVERSION="${MINOR_VERSION[0]}.${MINOR_VERSION[1]}"
+if [ ! -n "${WATCHOS_SDKVERSION}" ]; then
+  WATCHOS_SDKVERSION=$(xcrun -sdk watchos --show-sdk-version)
+fi
 
 # Determine number of cores for (parallel) build
 BUILD_THREADS=1
@@ -445,11 +416,15 @@ echo
 echo "Build options"
 echo "  OpenSSL version: ${VERSION}"
 echo "  Targets: ${TARGETS}"
-echo "  iOS SDK: ${IOS_SDKVERSION} (min ${IOS_MIN_SDK_VERSION})"
-echo "  macOS SDK: ${MACOS_SDKVERSION} (min ${MACOS_MIN_SDK_VERSION})"
-echo "  macOS SDK (Catalyst): ${CATALYST_SDKVERSION} (min ${CATALYST_MIN_SDK_VERSION})"
-echo "  watchOS SDK: ${WATCHOS_SDKVERSION} (min ${WATCHOS_MIN_SDK_VERSION})"
-echo "  tvOS SDK: ${TVOS_SDKVERSION} (min ${TVOS_MIN_SDK_VERSION})"
+echo "  iOS SDK: ${IOS_SDKVERSION}"
+echo "  iOS min SDK: ${IOS_MIN_SDK_VERSION}"
+echo "  tvOS SDK: ${TVOS_SDKVERSION}"
+echo "  tvOS min SDK: ${TVOS_MIN_SDK_VERSION}"
+echo "  watchOS SDK: ${WATCHOS_SDKVERSION}"
+echo "  watchOS min SDK: ${WATCHOS_MIN_SDK_VERSION}"
+echo "  MacOSX SDK: ${MACOSX_SDKVERSION}"
+echo "  MacOSX min SDK: ${MACOSX_MIN_SDK_VERSION}"
+
 if [ "${CONFIG_DISABLE_BITCODE}" == "true" ]; then
   echo "  Bitcode embedding disabled"
 fi
@@ -463,18 +438,15 @@ echo
 # Download OpenSSL when not present
 OPENSSL_ARCHIVE_BASE_NAME="openssl-${VERSION}"
 OPENSSL_ARCHIVE_FILE_NAME="${OPENSSL_ARCHIVE_BASE_NAME}.tar.gz"
-OPENSSL_ARCHIVE_SIGNATURE_FILE_EXT=".asc"
-OPENSSL_ARCHIVE_SIGNATURE_FILE_NAME="${OPENSSL_ARCHIVE_FILE_NAME}${OPENSSL_ARCHIVE_SIGNATURE_FILE_EXT}"
 if [ ! -e ${OPENSSL_ARCHIVE_FILE_NAME} ]; then
   echo "Downloading ${OPENSSL_ARCHIVE_FILE_NAME}..."
-  OPENSSL_ARCHIVE_BASE_URL="https://www.openssl.org/source"
-  OPENSSL_ARCHIVE_URL="${OPENSSL_ARCHIVE_BASE_URL}/${OPENSSL_ARCHIVE_FILE_NAME}"
+  OPENSSL_ARCHIVE_URL="https://www.openssl.org/source/${OPENSSL_ARCHIVE_FILE_NAME}"
 
   # Check whether file exists here (this is the location of the latest version for each branch)
   # -s be silent, -f return non-zero exit status on failure, -I get header (do not download)
   curl ${CURL_OPTIONS} -sfI "${OPENSSL_ARCHIVE_URL}" > /dev/null
 
-  # If unsuccessful, update the URL for older versions and try again.
+  # If unsuccessful, try the archive
   if [ $? -ne 0 ]; then
     BRANCH=$(echo "${VERSION}" | grep -Eo '^[0-9]\.[0-9]\.[0-9]')
     OPENSSL_ARCHIVE_URL="https://www.openssl.org/source/old/${BRANCH}/${OPENSSL_ARCHIVE_FILE_NAME}"
@@ -492,24 +464,12 @@ if [ ! -e ${OPENSSL_ARCHIVE_FILE_NAME} ]; then
   # Archive was found, so proceed with download.
   # -O Use server-specified filename for download
   curl ${CURL_OPTIONS} -O "${OPENSSL_ARCHIVE_URL}"
-  # also download the gpg signature from the same location
-  curl ${CURL_OPTIONS} -O "${OPENSSL_ARCHIVE_URL}${OPENSSL_ARCHIVE_SIGNATURE_FILE_EXT}"
 
 else
   echo "Using ${OPENSSL_ARCHIVE_FILE_NAME}"
 fi
 
-# Validate archive signature
-if [ -e ${OPENSSL_ARCHIVE_SIGNATURE_FILE_NAME} ]; then
-  gpg_validate "${OPENSSL_ARCHIVE_FILE_NAME}" "${OPENSSL_ARCHIVE_SIGNATURE_FILE_NAME}"
-  if [ $? -ne 0 ]; then
-    echo "WARN: GPG signature validation was unsuccessful."
-  fi
-else
-  echo "WARN: No GPG signature validation performed. (missing ${OPENSSL_ARCHIVE_SIGNATURE_FILE_NAME})"
-fi
-
-# Set reference to custom configuration (OpenSSL 1.1.1)
+# Set reference to custom configuration (OpenSSL 1.1.0)
 # See: https://github.com/openssl/openssl/commit/afce395cba521e395e6eecdaf9589105f61e4411
 export OPENSSL_LOCAL_CONFIG_DIR="${SCRIPTDIR}/config"
 
@@ -542,20 +502,92 @@ mkdir -p "${CURRENTPATH}/src"
 INCLUDE_DIR=""
 OPENSSLCONF_ALL=()
 LIBSSL_IOS=()
+LIBSSL_IOSSIM=()
 LIBCRYPTO_IOS=()
-LIBSSL_MACOS=()
-LIBCRYPTO_MACOS=()
+LIBCRYPTO_IOSSIM=()
+LIBSSL_TVOS=()
+LIBSSL_TVOSSIM=()
+LIBCRYPTO_TVOS=()
+LIBCRYPTO_TVOSSIM=()
+LIBSSL_WATCHOS=()
+LIBSSL_WATCHOSSIM=()
+LIBCRYPTO_WATCHOS=()
+LIBCRYPTO_WATCHOSSIM=()
 LIBSSL_CATALYST=()
 LIBCRYPTO_CATALYST=()
-LIBSSL_WATCHOS=()
-LIBCRYPTO_WATCHOS=()
-LIBSSL_TVOS=()
-LIBCRYPTO_TVOS=()
 
+# Run relevant build loop
 source "${SCRIPTDIR}/scripts/build-loop-targets.sh"
+
+# Build iOS/Simulator library if selected for build
+if [ ${#LIBSSL_IOS[@]} -gt 0 ]; then
+  echo "Build library for iOS..."
+  lipo -create ${LIBSSL_IOS[@]} -output "${CURRENTPATH}/lib/libssl-iOS.a"
+  lipo -create ${LIBCRYPTO_IOS[@]} -output "${CURRENTPATH}/lib/libcrypto-iOS.a"
+  echo "\n=====>iOS SSL and Crypto lib files:"
+  echo "${CURRENTPATH}/lib/libssl-iOS.a"
+  echo "${CURRENTPATH}/lib/libcrypto-iOS.a"
+fi
+if [ ${#LIBSSL_IOSSIM[@]} -gt 0 ]; then
+  echo "Build library for iOS Simulator..."
+  lipo -create ${LIBSSL_IOSSIM[@]} -output "${CURRENTPATH}/lib/libssl-iOS-Sim.a"
+  lipo -create ${LIBCRYPTO_IOSSIM[@]} -output "${CURRENTPATH}/lib/libcrypto-iOS-Sim.a"
+  echo "\n=====>iOS Simulator SSL and Crypto lib files:"
+  echo "${CURRENTPATH}/lib/libssl-iOS-Sim.a"
+  echo "${CURRENTPATH}/lib/libcrypto-iOS-Sim.a"
+fi
+
+# Build tvOS/Simulator library if selected for build
+if [ ${#LIBSSL_TVOS[@]} -gt 0 ]; then
+  echo "Build library for tvOS..."
+  lipo -create ${LIBSSL_TVOS[@]} -output "${CURRENTPATH}/lib/libssl-tvOS.a"
+  lipo -create ${LIBCRYPTO_TVOS[@]} -output "${CURRENTPATH}/lib/libcrypto-tvOS.a"
+  echo "\n=====>tvOS SSL and Crypto lib files:"
+  echo "${CURRENTPATH}/lib/libssl-tvOS.a"
+  echo "${CURRENTPATH}/lib/libcrypto-tvOS.a"
+fi
+if [ ${#LIBSSL_TVOSSIM[@]} -gt 0 ]; then
+  echo "Build library for tvOS..."
+  lipo -create ${LIBSSL_TVOSSIM[@]} -output "${CURRENTPATH}/lib/libssl-tvOS-Sim.a"
+  lipo -create ${LIBCRYPTO_TVOSSIM[@]} -output "${CURRENTPATH}/lib/libcrypto-tvOS-Sim.a"
+  echo "\n=====>tvOS Simulator SSL and Crypto lib files:"
+  echo "${CURRENTPATH}/lib/libssl-tvOS-Sim.a"
+  echo "${CURRENTPATH}/lib/libcrypto-tvOS-Sim.a"
+fi
+
+# Build watchOS/Simulator library if selected for build
+if [ ${#LIBSSL_WATCHOS[@]} -gt 0 ]; then
+  echo "Build library for watchOS..."
+  lipo -create ${LIBSSL_WATCHOS[@]} -output "${CURRENTPATH}/lib/libssl-watchOS.a"
+  lipo -create ${LIBCRYPTO_WATCHOS[@]} -output "${CURRENTPATH}/lib/libcrypto-watchOS.a"
+  echo "\n=====>watchOS SSL and Crypto lib files:"
+  echo "${CURRENTPATH}/lib/libssl-watchOS.a"
+  echo "${CURRENTPATH}/lib/libcrypto-watchOS.a"
+fi
+if [ ${#LIBSSL_WATCHOSSIM[@]} -gt 0 ]; then
+  echo "Build library for watchOS Simulator..."
+  lipo -create ${LIBSSL_WATCHOSSIM[@]} -output "${CURRENTPATH}/lib/libssl-watchOS-Sim.a"
+  lipo -create ${LIBCRYPTO_WATCHOSSIM[@]} -output "${CURRENTPATH}/lib/libcrypto-watchOS-Sim.a"
+  echo "\n=====>watchOS Simulator SSL and Crypto lib files:"
+  echo "${CURRENTPATH}/lib/libssl-watchOS-Sim.a"
+  echo "${CURRENTPATH}/lib/libcrypto-watchOS-Sim.a"
+fi
+
+# Build Catalyst library if selected for build
+if [ ${#LIBSSL_CATALYST[@]} -gt 0 ]; then
+  echo "Build library for Catalyst..."
+  lipo -create ${LIBSSL_CATALYST[@]} -output "${CURRENTPATH}/lib/libssl-Catalyst.a"
+  lipo -create ${LIBCRYPTO_CATALYST[@]} -output "${CURRENTPATH}/lib/libcrypto-Catalyst.a"
+  echo "\n=====>Catalyst SSL and Crypto lib files:"
+  echo "${CURRENTPATH}/lib/libssl-Catalyst.a"
+  echo "${CURRENTPATH}/lib/libcrypto-Catalyst.a"
+fi
 
 # Copy include directory
 cp -R "${INCLUDE_DIR}" "${CURRENTPATH}/include/"
+
+echo "\n=====>Include directory:"
+echo "${CURRENTPATH}/include/"
 
 # Only create intermediate file when building for multiple targets
 # For a single target, opensslconf.h is still present in $INCLUDE_DIR (and has just been copied to the target include dir)
@@ -575,23 +607,23 @@ if [ ${#OPENSSLCONF_ALL[@]} -gt 1 ]; then
 
     # Determine define condition
     case "${OPENSSLCONF_CURRENT}" in
+      *_ios_x86_64.h)
+        DEFINE_CONDITION="TARGET_OS_IOS && TARGET_OS_SIMULATOR && TARGET_CPU_X86_64"
+      ;;
+      *_ios_i386.h)
+        DEFINE_CONDITION="TARGET_OS_IOS && TARGET_OS_SIMULATOR && TARGET_CPU_X86"
+      ;;
       *_ios_arm64.h)
-        DEFINE_CONDITION="TARGET_OS_IOS && TARGET_OS_EMBEDDED && TARGET_CPU_ARM64"
+        DEFINE_CONDITION="TARGET_OS_IOS && (TARGET_OS_EMBEDDED || TARGET_OS_SIMULATOR) && TARGET_CPU_ARM64"
       ;;
       *_ios_arm64e.h)
         DEFINE_CONDITION="TARGET_OS_IOS && TARGET_OS_EMBEDDED && TARGET_CPU_ARM64E"
       ;;
-      *_ios_sim_x86_64.h)
-        DEFINE_CONDITION="TARGET_OS_IOS && TARGET_OS_SIMULATOR && TARGET_CPU_X86_64"
+      *_ios_armv7s.h)
+        DEFINE_CONDITION="TARGET_OS_IOS && TARGET_OS_EMBEDDED && TARGET_CPU_ARM && defined(__ARM_ARCH_7S__)"
       ;;
-      *_ios_sim_arm64.h)
-        DEFINE_CONDITION="TARGET_OS_IOS && TARGET_OS_SIMULATOR && TARGET_CPU_ARM64"
-      ;;
-      *_macos_x86_64.h)
-        DEFINE_CONDITION="TARGET_OS_OSX && TARGET_CPU_X86_64"
-      ;;
-      *_macos_arm64.h)
-        DEFINE_CONDITION="TARGET_OS_OSX && TARGET_CPU_ARM64"
+      *_ios_armv7.h)
+        DEFINE_CONDITION="TARGET_OS_IOS && TARGET_OS_EMBEDDED && TARGET_CPU_ARM && !defined(__ARM_ARCH_7S__)"
       ;;
       *_catalyst_x86_64.h)
         DEFINE_CONDITION="(TARGET_OS_MACCATALYST || (TARGET_OS_IOS && TARGET_OS_SIMULATOR)) && TARGET_CPU_X86_64"
@@ -599,26 +631,26 @@ if [ ${#OPENSSLCONF_ALL[@]} -gt 1 ]; then
       *_catalyst_arm64.h)
         DEFINE_CONDITION="(TARGET_OS_MACCATALYST || (TARGET_OS_IOS && TARGET_OS_SIMULATOR)) && TARGET_CPU_ARM64"
       ;;
-      *_watchos_armv7k.h)
-        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_OS_EMBEDDED && TARGET_CPU_ARM"
-      ;;
-      *_watchos_arm64_32.h)
-        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_OS_EMBEDDED && TARGET_CPU_ARM64"
-      ;;
-      *_watchos_sim_x86_64.h)
-        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_OS_SIMULATOR && TARGET_CPU_X86_64"
-      ;;
-      *_watchos_sim_arm64.h)
-        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_OS_SIMULATOR && TARGET_CPU_ARM64"
-      ;;
-      *_watchos_sim_i386.h)
-        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_OS_SIMULATOR && TARGET_CPU_X86"
+      *_tvos_x86_64.h)
+        DEFINE_CONDITION="TARGET_OS_TV && TARGET_OS_SIMULATOR && TARGET_CPU_X86_64"
       ;;
       *_tvos_arm64.h)
-        DEFINE_CONDITION="TARGET_OS_TV && TARGET_OS_EMBEDDED && TARGET_CPU_ARM64"
+        DEFINE_CONDITION="TARGET_OS_TV && (TARGET_OS_EMBEDDED || TARGET_OS_SIMULATOR) && TARGET_CPU_ARM64"
       ;;
-      *_tvos_sim_x86_64.h)
-        DEFINE_CONDITION="TARGET_OS_TV && TARGET_OS_SIMULATOR && TARGET_CPU_X86_64"
+      *_watchos_i386.h)
+        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_OS_SIMULATOR && TARGET_CPU_X86"
+      ;;
+      *_watchos_x86_64.h)
+        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_OS_SIMULATOR && TARGET_CPU_X86_64"
+      ;;
+      *_watchos_armv7k.h)
+        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_CPU_ARM"
+      ;;
+      *_watchos_arm64.h)
+        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_CPU_ARM64"
+      ;;
+      *_watchos_arm64_32.h)
+        DEFINE_CONDITION="TARGET_OS_WATCH && TARGET_CPU_ARM64"
       ;;
       *)
         # Don't run into unexpected cases by setting the default condition to false
