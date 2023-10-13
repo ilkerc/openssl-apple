@@ -19,6 +19,6 @@ Pod::Spec.new do |s|
 
     s.ios.deployment_target         = "13.0"
     s.osx.deployment_target         = "10.15"
-    s.vendored_frameworks           = "frameworks/openssl.xcframework"
+    s.vendored_frameworks           = "OpenSSL.xcframework"
     s.requires_arc                  = false
 end
